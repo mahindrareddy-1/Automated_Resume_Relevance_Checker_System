@@ -1,8 +1,8 @@
-streamlit>=1.28.0
-pandas>=1.5.0
-numpy>=1.21.0
-scikit-learn>=1.0.0
-nltk>=3.7
-PyPDF2>=3.0.0
-plotly>=5.0.0
+streamlit
+pandas
+numpy
+scikit-learn
+nltk
+PyPDF2
+plotly
 sqlite3
