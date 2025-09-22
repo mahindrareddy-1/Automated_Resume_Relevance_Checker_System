@@ -410,45 +410,299 @@ def display_bulk_results(results):
         mime="text/csv"
     )
 
+# First, add session state management to store analysis results
+if 'analysis_results' not in st.session_state:
+    st.session_state.analysis_results = []
+
 def dashboard_page():
     st.header("📊 Dashboard")
     
-    # Sample data for demonstration
-    sample_data = [
-        {'filename': 'resume_1.pdf', 'score': 85, 'verdict': 'High'},
-        {'filename': 'resume_2.pdf', 'score': 72, 'verdict': 'Medium'},
-        {'filename': 'resume_3.pdf', 'score': 45, 'verdict': 'Low'},
-        {'filename': 'resume_4.pdf', 'score': 78, 'verdict': 'High'},
-        {'filename': 'resume_5.pdf', 'score': 62, 'verdict': 'Medium'},
-    ]
+    # Get actual results from session state
+    results = st.session_state.analysis_results
     
-    if sample_data:
+    if not results:
+        st.info("📋 No data available. Analyze some resumes first to see dashboard insights!")
+        
+        # Optional: Show sample dashboard layout with placeholder
+        st.subheader("Dashboard Preview")
+        st.write("After analyzing resumes, you'll see:")
+        st.write("• Verdict distribution pie chart")
+        st.write("• Score distribution histogram") 
+        st.write("• Summary statistics")
+        st.write("• Recent analysis results table")
+        return
+    
+    # Calculate statistics from real data
+    total_resumes = len(results)
+    avg_score = np.mean([r['relevance_score'] for r in results])
+    high_count = len([r for r in results if r['verdict'] == 'High'])
+    medium_count = len([r for r in results if r['verdict'] == 'Medium'])
+    low_count = len([r for r in results if r['verdict'] == 'Low'])
+    
+    # Display key metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("📄 Total Resumes", total_resumes)
+    
+    with col2:
+        st.metric("📈 Average Score", f"{avg_score:.1f}/100")
+    
+    with col3:
+        st.metric("✅ High Matches", high_count)
+    
+    with col4:
+        st.metric("⚠️ Low Matches", low_count)
+    
+    # Charts section
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Verdict distribution pie chart
+        verdict_data = {
+            'High': high_count,
+            'Medium': medium_count, 
+            'Low': low_count
+        }
+        
+        # Only show non-zero categories
+        verdict_filtered = {k: v for k, v in verdict_data.items() if v > 0}
+        
+        if verdict_filtered:
+            fig_pie = px.pie(
+                values=list(verdict_filtered.values()),
+                names=list(verdict_filtered.keys()),
+                title="Verdict Distribution",
+                color_discrete_map={
+                    'High': '#28a745',
+                    'Medium': '#ffc107', 
+                    'Low': '#dc3545'
+                }
+            )
+            st.plotly_chart(fig_pie, use_container_width=True)
+    
+    with col2:
+        # Score distribution histogram
+        scores = [r['relevance_score'] for r in results]
+        fig_hist = px.histogram(
+            x=scores,
+            title="Score Distribution",
+            nbins=min(10, len(scores)),  # Adjust bins based on data size
+            labels={'x': 'Relevance Score', 'y': 'Count'}
+        )
+        fig_hist.update_traces(marker_color='#667eea')
+        st.plotly_chart(fig_hist, use_container_width=True)
+    
+    # Recent results table
+    st.subheader("📋 Recent Analysis Results")
+    
+    # Convert results to DataFrame for display
+    df_data = []
+    for r in results[-10:]:  # Show last 10 results
+        df_data.append({
+            'Resume': r['filename'],
+            'Score': f"{r['relevance_score']}/100",
+            'Verdict': r['verdict'],
+            'Hard Match': f"{r['hard_score']:.1f}",
+            'Semantic Match': f"{r['semantic_score']:.1f}",
+            'Timestamp': r['timestamp'][:16] if 'timestamp' in r else 'N/A'
+        })
+    
+    if df_data:
+        df = pd.DataFrame(df_data)
+        
+        # Style the dataframe
+        def highlight_verdict(val):
+            if val == 'High':
+                return 'background-color: #d4edda'
+            elif val == 'Medium':
+                return 'background-color: #fff3cd'  
+            elif val == 'Low':
+                return 'background-color: #f8d7da'
+            return ''
+        
+        styled_df = df.style.applymap(highlight_verdict, subset=['Verdict'])
+        st.dataframe(styled_df, use_container_width=True)
+        
+        # Export functionality
+        csv = df.to_csv(index=False)
+        st.download_button(
+            label="📥 Download Results CSV",
+            data=csv,
+            file_name=f"analysis_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv"
+        )
+    
+    # Additional insights section
+    if len(results) > 1:
+        st.subheader("📊 Additional Insights")
+        
         col1, col2 = st.columns(2)
         
         with col1:
-            # Verdict distribution
-            verdicts = [r['verdict'] for r in sample_data]
-            verdict_counts = pd.Series(verdicts).value_counts()
+            # Top skills analysis
+            all_skills = []
+            for r in results:
+                if 'found_skills' in r:
+                    all_skills.extend(r['found_skills'])
             
-            fig_pie = px.pie(
-                values=verdict_counts.values,
-                names=verdict_counts.index,
-                title="Verdict Distribution"
-            )
-            st.plotly_chart(fig_pie, use_container_width=True)
+            if all_skills:
+                skill_counts = pd.Series(all_skills).value_counts().head(10)
+                fig_skills = px.bar(
+                    x=skill_counts.values,
+                    y=skill_counts.index,
+                    orientation='h',
+                    title="Top Skills Found",
+                    labels={'x': 'Frequency', 'y': 'Skills'}
+                )
+                st.plotly_chart(fig_skills, use_container_width=True)
         
         with col2:
-            # Score distribution
-            scores = [r['score'] for r in sample_data]
-            fig_hist = px.histogram(
-                x=scores,
-                title="Score Distribution",
-                nbins=5
-            )
-            st.plotly_chart(fig_hist, use_container_width=True)
+            # Score trends (if timestamps available)
+            if all('timestamp' in r for r in results):
+                df_trends = pd.DataFrame(results)
+                df_trends['date'] = pd.to_datetime(df_trends['timestamp']).dt.date
+                
+                if len(df_trends['date'].unique()) > 1:
+                    daily_avg = df_trends.groupby('date')['relevance_score'].mean().reset_index()
+                    
+                    fig_trend = px.line(
+                        daily_avg,
+                        x='date',
+                        y='relevance_score', 
+                        title='Score Trends Over Time',
+                        labels={'relevance_score': 'Avg Score', 'date': 'Date'}
+                    )
+                    st.plotly_chart(fig_trend, use_container_width=True)
+
+# Update the single analysis function to store results
+def single_analysis_page(analyzer):
+    st.header("📋 Single Resume Analysis")
     
-    else:
-        st.info("No data available. Analyze some resumes first!")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("📄 Resume Upload")
+        uploaded_file = st.file_uploader(
+            "Choose resume file",
+            type=['pdf', 'txt'] if PDF_AVAILABLE else ['txt'],
+            help="Upload PDF or TXT file"
+        )
+        
+        if uploaded_file:
+            st.success(f"✅ Uploaded: {uploaded_file.name}")
+    
+    with col2:
+        st.subheader("💼 Job Description")
+        
+        # Sample JDs (same as before)
+        sample_jds = {
+            "Data Science Role": """Data Scientist Position
+            
+Required Skills:
+- Python programming
+- SQL database knowledge  
+- Data analysis and visualization
+- Machine learning fundamentals
+- Statistics knowledge
+- Power BI or Tableau experience
+
+Qualifications:
+- Bachelor's degree in relevant field
+- 2+ years of data analysis experience""",
+            
+            "Software Engineer Role": """Software Engineering Position
+            
+Required Skills:
+- Python, Java, or JavaScript
+- Web development frameworks
+- Database knowledge (MySQL, PostgreSQL)
+- Git version control
+- API development
+
+Qualifications:
+- Bachelor's degree in Computer Science
+- 1+ years of development experience"""
+        }
+        
+        selected_jd = st.selectbox("Select sample JD:", ["Custom"] + list(sample_jds.keys()))
+        
+        if selected_jd != "Custom":
+            jd_text = st.text_area("Job Description:", value=sample_jds[selected_jd], height=200)
+        else:
+            jd_text = st.text_area("Job Description:", height=200)
+    
+    if st.button("🔍 Analyze Resume", type="primary"):
+        if uploaded_file and jd_text:
+            with st.spinner("Analyzing..."):
+                # Extract text
+                if uploaded_file.type == "application/pdf" and PDF_AVAILABLE:
+                    resume_text = analyzer.extract_text_from_pdf(uploaded_file)
+                else:
+                    resume_text = uploaded_file.read().decode('utf-8', errors='ignore')
+                
+                if not resume_text.strip():
+                    st.error("Could not extract text from file")
+                    return
+                
+                # Analyze
+                result = analyzer.analyze_resume(resume_text, jd_text, uploaded_file.name)
+                
+                # Store result in session state
+                st.session_state.analysis_results.append(result)
+                
+                # Display results
+                display_results(result)
+                
+                # Show success message
+                st.success("✅ Analysis completed and saved to dashboard!")
+        else:
+            st.warning("Please upload resume and enter job description")
+
+# Update bulk analysis to store results too
+def bulk_analysis_page(analyzer):
+    st.header("📦 Bulk Processing")
+    
+    st.subheader("💼 Job Description")
+    jd_text = st.text_area("Enter job description for bulk analysis:", height=150)
+    
+    st.subheader("📄 Upload Multiple Resumes")
+    uploaded_files = st.file_uploader(
+        "Choose resume files",
+        type=['pdf', 'txt'] if PDF_AVAILABLE else ['txt'],
+        accept_multiple_files=True
+    )
+    
+    if uploaded_files:
+        st.success(f"✅ {len(uploaded_files)} files uploaded")
+    
+    if st.button("🔍 Process All", type="primary"):
+        if uploaded_files and jd_text:
+            results = []
+            progress_bar = st.progress(0)
+            
+            for i, file in enumerate(uploaded_files):
+                # Extract text
+                if file.type == "application/pdf" and PDF_AVAILABLE:
+                    text = analyzer.extract_text_from_pdf(file)
+                else:
+                    text = file.read().decode('utf-8', errors='ignore')
+                
+                if text.strip():
+                    result = analyzer.analyze_resume(text, jd_text, file.name)
+                    results.append(result)
+                    # Add to session state
+                    st.session_state.analysis_results.append(result)
+                
+                progress_bar.progress((i + 1) / len(uploaded_files))
+            
+            # Display bulk results
+            display_bulk_results(results)
+            
+            st.success(f"✅ Processed {len(results)} resumes and saved to dashboard!")
+        else:
+            st.warning("Please provide job description and upload files")
 
 if __name__ == "__main__":
     main()
+
